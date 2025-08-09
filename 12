@@ -1,0 +1,71 @@
+import asyncio
+import datetime
+from aiogram import Bot, Dispatcher
+from aiogram.types import ChatMemberUpdated
+from aiogram.enums import ChatMemberStatus
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+TOKEN = "8240637705:AAHiu0HGDL64GWxwyzNOE9CvZAJvDvbt_hg"
+GROUP_ID = -1002125753894  # Replace with your group chat ID
+
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
+
+# Store invite counts for the current week: {inviter_id: {"name": name, "count": number}}
+weekly_invites = {}
+
+
+@dp.chat_member()
+async def track_invites(event: ChatMemberUpdated):
+    # Detect new member joined
+    if (
+        event.old_chat_member.status in [ChatMemberStatus.LEFT, ChatMemberStatus.KICKED]
+        and event.new_chat_member.status == ChatMemberStatus.MEMBER
+    ):
+        inviter = event.from_user
+        new_member = event.new_chat_member.user
+
+        # Ignore self-joins
+        if inviter.id == new_member.id:
+            return
+
+        if inviter.id not in weekly_invites:
+            weekly_invites[inviter.id] = {"name": inviter.full_name, "count": 0}
+
+        weekly_invites[inviter.id]["count"] += 1
+
+
+async def send_weekly_report():
+    if not weekly_invites:
+        await bot.send_message(GROUP_ID, "📊 Nobody invited anyone this week.")
+        return
+
+    # Sort by number of invites
+    sorted_invites = sorted(
+        weekly_invites.values(), key=lambda x: x["count"], reverse=True
+    )
+
+    # Create the report
+    report_lines = ["📅 Weekly Invite Report:"]
+    for entry in sorted_invites:
+        report_lines.append(f"👤 {entry['name']}: {entry['count']} invites")
+
+    report_text = "\n".join(report_lines)
+
+    await bot.send_message(GROUP_ID, report_text)
+
+    # Reset for the new week
+    weekly_invites.clear()
+
+
+async def main():
+    # Schedule weekly report
+    scheduler = AsyncIOScheduler(timezone="Asia/Tashkent")
+    scheduler.add_job(send_weekly_report, "cron", day_of_week="sun", hour=9, minute=0)
+    scheduler.start()
+
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
